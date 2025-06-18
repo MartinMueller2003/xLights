@@ -1032,7 +1032,6 @@
     <ClCompile Include="effects\DuplicatePanel.cpp">
       <Filter>Effects</Filter>
     </ClCompile>
-    <ClCompile Include="wxWEBPHandler\imagwebp.cpp" />
     <ClCompile Include="effects\AdjustEffect.cpp">
       <Filter>Effects</Filter>
     </ClCompile>
@@ -1109,6 +1108,12 @@
       <Filter>ai</Filter>
     </ClCompile>
     <ClCompile Include="CheckSequenceReport.cpp" />
+    <ClCompile Include="ai\ollama.cpp">
+      <Filter>ai</Filter>
+    </ClCompile>
+    <ClCompile Include="ai\ServiceManager.cpp">
+      <Filter>ai</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BatchRenderDialog.h" />
@@ -2153,7 +2158,6 @@
     <ClInclude Include="effects\DuplicatePanel.h">
       <Filter>Effects</Filter>
     </ClInclude>
-    <ClInclude Include="wxWEBPHandler\imagwebp.h" />
     <ClInclude Include="effects\AdjustEffect.h">
       <Filter>Effects</Filter>
     </ClInclude>
@@ -2227,6 +2231,15 @@
       <Filter>ai</Filter>
     </ClInclude>
     <ClInclude Include="CheckSequenceReport.h" />
+    <ClInclude Include="ai\ollama.h">
+      <Filter>ai</Filter>
+    </ClInclude>
+    <ClInclude Include="ai\ServiceManager.h">
+      <Filter>ai</Filter>
+    </ClInclude>
+    <ClInclude Include="ai\aiType.h">
+      <Filter>ai</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Models">

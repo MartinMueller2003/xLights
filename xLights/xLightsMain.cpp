@@ -1,4 +1,4 @@
-﻿/***************************************************************
+/***************************************************************
  * This source files comes from the xLights project
  * https://www.xlights.org
  * https://github.com/xLightsSequencer/xLights
@@ -118,6 +118,7 @@
 #include "xlColourData.h"
 #include "utils/Curl.h"
 #include "ai/chatGPT.h"
+#include "models/DMX/DmxMovingHeadComm.h"
 
 #include "../xSchedule/wxHTTPServer/wxhttpserver.h"
 
@@ -129,9 +130,7 @@
 #include "../include/control-play-blue-icon.xpm"
 
 #include <xlsxwriter.h>
-
-#include "wxWEBPHandler/wx/imagwebp.h"
-
+#include <CheckSequenceReport.h>
 #include <log4cpp/Category.hh>
 
 //(*InternalHeaders(xLightsFrame)
@@ -139,7 +138,6 @@
 #include <wx/image.h>
 #include <wx/intl.h>
 #include <wx/string.h>
-#include <CheckSequenceReport.h>
 //*)
 
 #define TOOLBAR_SAVE_VERSION "0003:"
@@ -956,6 +954,9 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
     MenuItem37 = new wxMenuItem(Menu3, wxID_UNDO, _("Undo\tCtrl-z"), wxEmptyString, wxITEM_NORMAL);
     MenuItem37->SetBitmap(GetMenuItemBitmapBundle("wxART_UNDO"));
     Menu3->Append(MenuItem37);
+    MenuItem_REDO = new wxMenuItem(Menu3, wxID_REDO, _("Redo\tCtrl-y"), wxEmptyString, wxITEM_NORMAL);
+    MenuItem_REDO->SetBitmap(GetMenuItemBitmapBundle("wxART_REDO"));
+    Menu3->Append(MenuItem_REDO);
     Menu3->AppendSeparator();
     MenuItem34 = new wxMenuItem(Menu3, wxID_CUT, _("Cut\tCTRL-x"), wxEmptyString, wxITEM_NORMAL);
     MenuItem34->SetBitmap(GetMenuItemBitmapBundle("wxART_CUT"));
@@ -1371,9 +1372,10 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
     Connect(ID_TIMER_RENDERSTATUS, wxEVT_TIMER, (wxObjectEventFunction)&xLightsFrame::OnRenderStatusTimerTrigger);
     Connect(wxID_ANY, wxEVT_CLOSE_WINDOW, (wxObjectEventFunction)&xLightsFrame::OnClose);
     Connect(wxEVT_CHAR, (wxObjectEventFunction)&xLightsFrame::OnChar);
-    Connect(wxEVT_SIZE, (wxObjectEventFunction)&xLightsFrame::OnResize);
     //*)
-
+    
+    Notebook1->SetArtProvider(new wxAuiGenericTabArt());
+    
     wxConfigBase* config = wxConfigBase::Get();
     if (config == nullptr) {
         logger_base.error("Null config ... this wont end well.");
@@ -1564,6 +1566,9 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
     config->Read("xLightsSmallWaveform", &_smallWaveform, false);
     logger_base.debug("Small Waveform: %s.", toStr(_smallWaveform));
 
+    config->Read("xlightsRenderBell", &_renderBellEnabled, false);
+    logger_base.debug("Render Bell Enabled: %s.", toStr(_renderBellEnabled));
+
     config->Read("xLightsModelBlendDefaultOff", &_modelBlendDefaultOff, false);
     logger_base.debug("Model Blend Default Off: %s.", toStr(_modelBlendDefaultOff));
 
@@ -1709,11 +1714,11 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
     config->Read("xLightsIgnoreVendorModelRecommendations2", &_ignoreVendorModelRecommendations, defVMR);
     logger_base.debug("Ignore vendor model recommendations: %s.", toStr(_ignoreVendorModelRecommendations));
 
-    config->Read("XLightsControllerPingInterval", &_controllerPingInterval, 0);   
+    config->Read("XLightsControllerPingInterval", &_controllerPingInterval, 0);
     if (_controllerPingInterval > 0) {
         _pingTimer->Start(_controllerPingInterval * 1000);
         _statusRefreshTimer->Start(_controllerPingInterval/2 * 1000);
-    
+
     }
     logger_base.debug("Controller ping interval in seconds: %s.", toStr(_controllerPingInterval));
 
@@ -1882,6 +1887,7 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
     InitEffectsPanel(EffectsPanel1);
     logger_base.debug("Effects panel initialised.");
 
+    _serviceManager = std::make_unique<ServiceManager>(this);
 
     EffectTreeDlg = nullptr; // must be before any call to SetDir
 
@@ -2089,9 +2095,6 @@ xLightsFrame::xLightsFrame(wxWindow* parent, int ab, wxWindowID id, bool renderO
 
     config->Read("xLightsUserEmail", &_userEmail, "");
 
-    config->Read("xLightsLinkedSave", &_linkedSave, "Controllers and Layout Tab");
-    logger_base.debug("Linked save: %s.", (const char*)_linkedSave.c_str());
-
     config->Read("xLightsLinkedControllerUpload", &_linkedControllerUpload, "Inputs and Outputs");
     logger_base.debug("Linked controller upload: %s.", (const char*)_linkedControllerUpload.c_str());
 
@@ -2198,6 +2201,7 @@ xLightsFrame::~xLightsFrame()
     config->Write("xLightsZoomMethodToCursor", _zoomMethodToCursor);
     config->Write("xLightsHidePresetPreview", _hidePresetPreview);
     config->Write("xLightsSmallWaveform", _smallWaveform);
+    config->Write("xLightsRenderBell", _renderBellEnabled);
     config->Write("xLightsModelBlendDefaultOff", _modelBlendDefaultOff);
     config->Write("xLightsLowDefinitionRender", _lowDefinitionRender);
     config->Write("xLightsTimelineZooming", _timelineZooming);
@@ -3512,10 +3516,6 @@ bool xLightsFrame::ExportVideoPreview(wxString const& path)
     return exportStatus;
 }
 
-void xLightsFrame::OnResize(wxSizeEvent& event)
-{
-}
-
 void xLightsFrame::OnAuiToolBarItemRenderAllClick(wxCommandEvent& event)
 {
     RenderAll();
@@ -4299,7 +4299,11 @@ void xLightsFrame::OnTimer_AutoSaveTrigger(wxTimerEvent& event)
                 logged = true;
             }
         } else {
-            logger_base.debug("AutoSave skipped because sequence is playing or suspended.");
+            static bool logged = false;
+            if (!logged) {
+                logger_base.debug("AutoSave skipped because sequence is playing or suspended.");
+                logged = true;
+            }
         }
         if (mAutoSaveInterval > 0) {
             AutoSaveTimer.StartOnce(1000); // try again in a short period of time as we did not actually save this time
@@ -5054,7 +5058,7 @@ bool xLightsFrame::CheckStart(wxFile& f, CheckSequenceReport& report, bool write
 std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
 {
     static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    
+
     // make sure everything is up to date
     if (Notebook1->GetSelection() != LAYOUTTAB)
         layoutPanel->UnSelectAllModels();
@@ -5154,7 +5158,7 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
 
     size_t errcountsave = errcount;
     size_t warncountsave = warncount;
-    
+
     LogCheckSequenceMsg(wxString::Format("\nSection Errors (Network): %u. Warnings: %u", (unsigned int)errcount, (unsigned int)warncount).ToStdString());
     LogCheckSequenceMsg("-----------------------------------------------------------------------------------------------------------------");
     toterrcount += errcount;
@@ -5226,7 +5230,7 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
             wxString msg = wxString::Format("    ERR: Layout Background image not loadable as an image: %s.", mBackgroundImage);
             LogAndTrack(report, "preferences", CheckSequenceReport::ReportIssue::CRITICAL, msg.ToStdString(), "layout", errcount, warncount);
         }
-    }    
+    }
 
    if (errcount + warncount == errcountsave + warncountsave) {
         LogCheckSequenceMsg("    No problems found");
@@ -5763,6 +5767,11 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
     // Check for overlapping channels in models
     for (auto it = std::begin(AllModels); it != std::end(AllModels); ++it) {
         if (it->second->GetDisplayAs() != "ModelGroup") {
+            if(it->second->GetModelStartChannel().starts_with("@") && it->second->GetDisplayAs() == "Single Line" && it->second->GetNumStrings() > 1) {
+                logger_base.debug("Skipping Overlap Checking for %s [%s]", it->second->GetFullName().c_str(), it->second->GetModelStartChannel().c_str());
+                continue;
+            }
+
             auto m1start = it->second->GetFirstChannel() + 1;
             auto m1end = it->second->GetLastChannel() + 1;
 
@@ -5897,7 +5906,7 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
             auto issueType = (it.find("WARN:") != std::string::npos)
                                  ? CheckSequenceReport::ReportIssue::WARNING
                                  : CheckSequenceReport::ReportIssue::CRITICAL;
-            LogAndTrack(report, "models", issueType, it, "settings", errcount, warncount);            
+            LogAndTrack(report, "models", issueType, it, "settings", errcount, warncount);
         }
 
         if ((it.second->GetPixelStyle() == Model::PIXEL_STYLE::PIXEL_STYLE_SOLID_CIRCLE || it.second->GetPixelStyle() == Model::PIXEL_STYLE::PIXEL_STYLE_BLENDED_CIRCLE) && it.second->GetNodeCount() > 100) {
@@ -5912,7 +5921,7 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
             auto issueType = (it.find("WARN:") != std::string::npos)
                                  ? CheckSequenceReport::ReportIssue::WARNING
                                  : CheckSequenceReport::ReportIssue::CRITICAL;
-            LogAndTrack(report, "models", issueType, it, "settings", errcount, warncount);  
+            LogAndTrack(report, "models", issueType, it, "settings", errcount, warncount);
         }
     }
 
@@ -6134,6 +6143,59 @@ std::string xLightsFrame::CheckSequence(bool displayInEditor, bool writeToFile)
                         wxString msg = wxString::Format("    WARN: Model group '%s' contains DMX models with varying numbers of channels. This is not likely to work as expected.", (const char*)it->Name().c_str());
                         LogAndTrack(report, "models", CheckSequenceReport::ReportIssue::WARNING, msg.ToStdString(), "groupdmx", errcount, warncount);
                         break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (errcount + warncount == errcountsave + warncountsave) {
+        LogCheckSequenceMsg("    No problems found");
+    }
+    errcountsave = errcount;
+    warncountsave = warncount;
+
+    // Check for model groups containing moving heads where the heads are all numbered MH1
+    LogCheckSequenceMsg("");
+    LogCheckSequenceMsg("Model Groups containing moving heads which have not been numbered");
+
+    for (const auto& it : AllModels) {
+        if (it.second->GetDisplayAs() == "ModelGroup") {
+            ModelGroup* mg = dynamic_cast<ModelGroup*>(it.second);
+            if (mg != nullptr) { // this should never fail
+                auto models = mg->ModelNames();
+
+                bool allMovingHeads = true;
+                uint32_t count = 0;
+                for (const auto& m : models) {
+                    Model* model = AllModels.GetModel(m);
+
+                    if (model != nullptr) {
+                        if (model->GetDisplayAs() != "DmxMovingHeadAdv" && model->GetDisplayAs() != "DmxMovingHead") {
+							allMovingHeads = false;
+							break;
+						}
+                        ++count;
+                    }
+                }
+
+                if (count > 1 && allMovingHeads) {
+                    bool numberOK = false;
+
+                    // now check if any are not MH1
+                    for (const auto& m : models) {
+                        Model* model = AllModels.GetModel(m);
+
+                        if (model != nullptr) {
+                            if (dynamic_cast <DmxMovingHeadComm*>(model)->GetFixture() != "MH1") {
+                                numberOK = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!numberOK) {
+                        wxString msg = wxString::Format("    WARN: Model group '%s' contains multiple moving heads but they are all numbered MH1. This may not work as expected with the moving head effect if you want to do fans.", mg->GetName());
+                        LogAndTrack(report, "models", CheckSequenceReport::ReportIssue::WARNING, msg.ToStdString(), "groupmovinghead", errcount, warncount);
                     }
                 }
             }
@@ -9102,15 +9164,11 @@ void xLightsFrame::SaveCurrentTab()
     switch (Notebook1->GetSelection()) {
     case SETUPTAB:
         SaveNetworksFile();
-        if (IsControllersAndLayoutTabSaveLinked()) {
-            layoutPanel->SaveEffects();
-        }
+        layoutPanel->SaveEffects();
         break;
     case LAYOUTTAB:
         layoutPanel->SaveEffects();
-        if (IsControllersAndLayoutTabSaveLinked()) {
-            SaveNetworksFile();
-        }
+        SaveNetworksFile();
         break;
     case NEWSEQUENCER:
         SaveSequence();
@@ -10076,26 +10134,6 @@ void xLightsFrame::SetUserEMAIL(const wxString& e)
     logger_base.info("User email changed to %s", (const char*)_userEmail.c_str());
 }
 
-void xLightsFrame::SetLinkedSave(const wxString& e)
-{
-    static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    _linkedSave = e;
-    wxConfigBase* config = wxConfigBase::Get();
-    config->Write("xLightsLinkedSave", _linkedSave);
-    config->Flush();
-    logger_base.info("Linked save set to %s", (const char*)_linkedSave.c_str());
-}
-
-void xLightsFrame::SetLinkedControllerUpload(const wxString& e)
-{
-    static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-    _linkedControllerUpload = e;
-    wxConfigBase* config = wxConfigBase::Get();
-    config->Write("xLightsLinkedControllerUpload", _linkedControllerUpload);
-    config->Flush();
-    logger_base.info("Linked controller upload set to %s", (const char*)_linkedControllerUpload.c_str());
-}
-
 void xLightsFrame::SetRenameModelAliasPromptBehavior(const wxString& e)
 {
     static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
@@ -10721,31 +10759,6 @@ void xLightsFrame::OnMenuItemFindShowFolderSelected(wxCommandEvent& event)
     dlg.ShowModal();
 }
 
-void xLightsFrame::SetServiceSetting(const std::string& key, const std::string& value)
-{
-    // It would be nice if we had a secret we  could encrypt these with
-	wxConfigBase* config = wxConfigBase::Get();
-	config->Write(wxString("xLightsServiceSettings" + key), wxString(value));
-	config->Flush();
-}
-
-std::string xLightsFrame::GetServiceSetting(const std::string& key, const std::string& defaultValue)
-{
-    // It would be nice if we had a secret we  could encrypt these with
-    wxConfigBase* config = wxConfigBase::Get();
-    wxString value = config->Read(wxString("xLightsServiceSettings" + key), wxString(defaultValue));
-    return value.ToStdString();
-}
-
-std::unique_ptr<aiBase> xLightsFrame::GetLLM()
-{
-    // we arrange these in priority order ... although in reality users are likely to only have one
-    // maybe we need to give the user control over the order of use (although i am not sure when it would use anything other than the top one)
-
-    auto gpt = std::make_unique<chatGPT>(chatGPT(this));
-    if (gpt->IsAvailable()) {
-		return gpt;
-	}
-
-    return nullptr;
+aiBase* xLightsFrame::GetLLM(aiType::TYPE serviceType) {
+    return _serviceManager->findService(serviceType);
 }

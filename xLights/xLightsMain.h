@@ -88,6 +88,9 @@
 #include "TipOfTheDayDialog.h"
 #include <CheckSequenceReport.h>
 
+#include "ai/aiType.h"
+#include "ai/ServiceManager.h"
+
 class wxDebugReport;
 
 class aiBase;
@@ -387,7 +390,6 @@ public:
     };
 
     wxString _userEmail;
-    wxString _linkedSave = "None";
     wxString _linkedControllerUpload = "None";
     wxString _aliasRenameBehavior = "Always Prompt";
     static wxString CurrentDir; //expose current folder name -DJ
@@ -505,7 +507,6 @@ public:
     void OnMenuItemViewSavePerspectiveSelected(wxCommandEvent& event);
     void OnMenu_Settings_SequenceSelected(wxCommandEvent& event);
     void OnMenuItem_File_Open_SequenceSelected(wxCommandEvent& event);
-    void OnResize(wxSizeEvent& event);
     void OnAuiToolBarItemRenderAllClick(wxCommandEvent& event);
     void OnMenuItem_File_Close_SequenceSelected(wxCommandEvent& event);
     void OnMenuItem_File_Export_VideoSelected(wxCommandEvent& event);
@@ -1007,6 +1008,7 @@ public:
     wxMenuItem* MenuItem_PurgeRenderCache;
     wxMenuItem* MenuItem_PurgeVendorCache;
     wxMenuItem* MenuItem_QuietVol;
+    wxMenuItem* MenuItem_REDO;
     wxMenuItem* MenuItem_RemapCustom;
     wxMenuItem* MenuItem_SD_HP;
     wxMenuItem* MenuItem_SD_MP;
@@ -1123,6 +1125,7 @@ public:
     bool _saveLowDefinitionRender = false; // saves the value of the low definition render during batch render when it may be temporarily overridden
     bool _snapToTimingMarks = true;
     bool _autoSavePerspecive = true;
+    bool _renderBellEnabled = false;
     bool _ignoreVendorModelRecommendations = false;
     bool _purgeDownloadCacheOnStart = false;
     int _controllerPingInterval = 0;
@@ -1145,16 +1148,19 @@ public:
     HttpServer* _automationServer = nullptr;
     int _xFadePort = 0;
 
+    [[nodiscard]] bool IsRenderBell() const { return _renderBellEnabled; }
+    void SetRenderBell(bool b) { _renderBellEnabled = b; }
+	[[nodiscard]] bool IsIgnoreVendorModelRecommendations() const { return _ignoreVendorModelRecommendations; }
     void StartAutomationListener();
-    bool ProcessHttpRequest(HttpConnection &connection, HttpRequest &request);
-    bool ProcessAutomation(std::vector<std::string> &paths,
+    [[nodiscard]] bool ProcessHttpRequest(HttpConnection& connection, HttpRequest& request);
+    [[nodiscard]] bool ProcessAutomation(std::vector<std::string>& paths,
                            std::map<std::string, std::string> &params,
                            const std::function<bool(const std::string &msg,
                                                     const std::string &jsonKey,
                                                     int responseCode,
                                                     bool msgIsJSON)> &sendResponse);
-    std::string ProcessxlDoAutomation(const std::string& msg);
-    std::string FindSequence(const std::string& seq);
+    [[nodiscard]] std::string ProcessxlDoAutomation(const std::string& msg);
+    [[nodiscard]] std::string FindSequence(const std::string& seq);
 
     void CollectUserEmail();
     void ShowACLights();
@@ -1164,10 +1170,14 @@ public:
     void DoBackup(bool prompt = true, bool startup = false, bool forceallfiles = false);
     void DoBackupPurge();
     void SetBackupPurgeDays(int i);
-    int GetBackupPugeDays() const { return BackupPurgeDays; }
+    [[nodiscard]] int GetBackupPugeDays() const {
+        return BackupPurgeDays;
+    }
     void DoAltBackup(bool prompt = true);
 
-    const std::list<std::string> &GetMediaFolders() { return mediaDirectories; }
+    [[nodiscard]] const std::list<std::string>& GetMediaFolders() const {
+        return mediaDirectories;
+    }
     void SetMediaFolders(const std::list<std::string> &folders);
     void GetFSEQFolder(bool& useShow, std::string& folder);
     void SetFSEQFolder(bool useShow, const std::string& folder);
@@ -1179,14 +1189,22 @@ public:
     void SetBackupFolder(bool useShow, const std::string& folder);
     void GetAltBackupFolder(std::string& folder);
     void SetAltBackupFolder(const std::string& folder);
-    bool BackupOnSave() const {return mBackupOnSave;}
+    [[nodiscard]] bool BackupOnSave() const {
+        return mBackupOnSave;
+    }
     void SetBackupOnSave(bool b) { mBackupOnSave = b;}
-    bool BackupOnLaunch() const {return mBackupOnLaunch;}
+    [[nodiscard]] bool BackupOnLaunch() const {
+        return mBackupOnLaunch;
+    }
     void SetBackupOnLaunch(bool b) { mBackupOnLaunch = b;}
-    bool BackupSubFolders() const {return _backupSubfolders;}
+    [[nodiscard]] bool BackupSubFolders() const {
+        return _backupSubfolders;
+    }
     void SetBackupSubFolders(bool b) { _backupSubfolders = b;}
 
-    bool GridNodeValues() const { return mGridNodeValues; }
+    [[nodiscard]] bool GridNodeValues() const {
+        return mGridNodeValues;
+    }
     void SetGridNodeValues(bool b);
 
     bool GridIconBackgrounds() const { return mGridIconBackgrounds;}
@@ -1237,9 +1255,6 @@ public:
 
     const wxString& UserEMAIL() const { return _userEmail; }
     void SetUserEMAIL(const wxString &e);
-
-    const wxString& GetLinkedSave() const { return _linkedSave; }
-    void SetLinkedSave(const wxString& e);
 
     const wxString& GetLinkedControllerUpload() const { return _linkedControllerUpload; }
     void SetLinkedControllerUpload(const wxString& e);
@@ -1322,9 +1337,7 @@ public:
     bool HidePresetPreview() const { return _hidePresetPreview;}
     void SetHidePresetPreview(bool b);
 
-    void SetServiceSetting(const std::string& setting, const std::string& value);
-    std::string GetServiceSetting(const std::string& setting, const std::string& defaultValue = "");
-    std::unique_ptr<aiBase> GetLLM();
+    aiBase* GetLLM(aiType::TYPE serviceType = aiType::TYPE::PROMPT);
 
     bool IsShowBaseShowFolder() const
     {
@@ -1429,7 +1442,6 @@ public:
     bool PromptForShowDirectory(bool permanent, const std::string &defaultDir = "");
     bool PromptForDirectorySelection(const std::string &msg, std::string &dir);
     bool SaveNetworksFile();
-    bool IsControllersAndLayoutTabSaveLinked() { return _linkedSave == "Controllers and Layout Tab"; }
     bool IsControllerUploadLinked() { return _linkedControllerUpload == "Inputs and Outputs"; }
     void NetworkChange();
     void NetworkChannelsChange();
@@ -1732,6 +1744,7 @@ public:
     ModelPreview* GetLayoutPreview() const {return modelPreview;}
     void SetStoredLayoutGroup(const std::string &group);
     const std::string& GetStoredLayoutGroup() const {return mStoredLayoutGroup;}
+    bool IsSequencerInitialize() {return mSequencerInitialize;}
     bool IsACActive();
     void GetACSettings(ACTYPE& type, ACSTYLE& style, ACTOOL& tool, ACMODE& mode);
     int GetACIntensity();
@@ -1790,7 +1803,8 @@ private:
     SelectPanel *_selectPanel = nullptr;
     SequenceVideoPanel* sequenceVideoPanel = nullptr;
     SearchPanel* _searchPanel = nullptr;
-    std::unique_ptr<ScriptsDialog> _scriptsDialog;
+    std::unique_ptr<ScriptsDialog> _scriptsDialog{ nullptr };
+    std::unique_ptr<ServiceManager> _serviceManager{ nullptr };
     int mMediaLengthMS;
 
     bool mSequencerInitialize = false;

@@ -11,7 +11,7 @@
  **************************************************************/
 
 #include "aiBase.h"
-
+#include "aiType.h"
 #include <string>
 
 // https://platform.openai.com/docs/api-reference/introduction
@@ -21,17 +21,28 @@ class chatGPT : public aiBase {
 
 	std::string url = "https://api.openai.com/v1/chat/completions";
 	std::string model = "gpt-4o-mini";
+    std::string bearer_token;
 	float temperature = 0.0;
 
 	public:
 
-	chatGPT(xLightsFrame* frame) : aiBase(frame) {}
+	explicit chatGPT(ServiceManager* sm) :
+            aiBase(sm) {
+        }
 	virtual ~chatGPT() {}
 
-	std::string CallLLM(const std::string& prompt, const std::string& token = "") const override;
-    bool TestLLM(const std::string& token = "") const override;
-	bool IsAvailable(const std::string& token = "") const override;
-    std::string GetLLMName() const override {
+    void SaveSettings() const override;
+    void LoadSettings() override;
+
+    void PopulateLLMSettings(wxPropertyGrid* page) override;
+    void SetSetting(const std::string& key, const wxVariant& value) override;
+
+	[[nodiscard]] std::pair<std::string, bool> CallLLM(const std::string& prompt) const override;
+    [[nodiscard]] bool IsAvailable() const override;
+    [[nodiscard]] std::string GetLLMName() const override {
         return "ChatGPT";
+    }
+    [[nodiscard]] aiType::TYPE GetLLMType() const override {
+        return aiType::TYPE::PROMPT;
     }
 };

@@ -22,6 +22,9 @@
 #include "xLightsMain.h"
 #include "LayoutPanel.h"
 #include "xLightsXmlFile.h"
+#ifdef __WXOSX__
+#include "xlPropertyGrid.h"
+#endif
 #include "sequencer/MainSequencer.h"
 #include "ViewsModelsPanel.h"
 #include "UtilFunctions.h"
@@ -884,7 +887,7 @@ void xLightsFrame::NetworkChange() {
 void xLightsFrame::NetworkChannelsChange() {
 
     static log4cpp::Category& logger_work = log4cpp::Category::getInstance(std::string("log_work"));
-    logger_work.debug("        NetowrkChannelsChange.");
+    logger_work.debug("        NetworkChannelsChange.");
 
     _outputManager.SomethingChanged();
     _outputModelManager.AddASAPWork(OutputModelManager::WORK_RESEND_CONTROLLER_CONFIG, "NetworkChannelsChange");
@@ -926,7 +929,7 @@ bool xLightsFrame::SaveNetworksFile() {
 }
 
 void xLightsFrame::UpdateControllerSave() {
-    if (UnsavedNetworkChanges || (IsControllersAndLayoutTabSaveLinked() && UnsavedRgbEffectsChanges)) {
+    if (UnsavedNetworkChanges || UnsavedRgbEffectsChanges) {
 #ifdef __WXOSX__
         SetButtonBackground(ButtonSaveSetup, wxColour(255, 0, 0), 0);
 #else
@@ -942,7 +945,7 @@ void xLightsFrame::UpdateControllerSave() {
 }
 
 void xLightsFrame::UpdateLayoutSave() {
-    if (UnsavedRgbEffectsChanges || (IsControllersAndLayoutTabSaveLinked() && UnsavedNetworkChanges)) {
+    if (UnsavedRgbEffectsChanges || UnsavedNetworkChanges) {
 #ifdef __WXOSX__
         SetButtonBackground(layoutPanel->ButtonSavePreview, wxColour(255, 0, 0), 2);
 #else
@@ -960,9 +963,7 @@ void xLightsFrame::UpdateLayoutSave() {
 void xLightsFrame::OnButtonSaveSetupClick(wxCommandEvent& event) {
 
     SaveNetworksFile();
-    if (IsControllersAndLayoutTabSaveLinked()) {
-        layoutPanel->SaveEffects();
-    }
+    layoutPanel->SaveEffects();
     UpdateControllerSave();
 }
 
@@ -1695,6 +1696,19 @@ void xLightsFrame::InitialiseControllersTab(bool rebuildPropGrid) {
     }
 
     if (Controllers_PropertyEditor == nullptr) {
+#ifdef __WXOSX__
+        xlPropertyGrid *grid = new xlPropertyGrid(Panel5, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+
+            // Here are just some of the supported window styles
+            //wxPG_AUTO_SORT | // Automatic sorting after items added
+            wxPG_SPLITTER_AUTO_CENTER | // Automatically center splitter until user manually adjusts it
+            // Default style
+            wxPG_DEFAULT_STYLE);
+
+        Controllers_PropertyEditor = grid;
+        Controllers_PropertyEditor->SetExtraStyle(wxPG_EX_HELP_AS_TOOLTIPS);
+#else
+
         Controllers_PropertyEditor = new wxPropertyGrid(Panel5, wxID_ANY, wxDefaultPosition, wxDefaultSize,
             // Here are just some of the supported window styles
             //wxPG_AUTO_SORT | // Automatic sorting after items added
@@ -1702,11 +1716,15 @@ void xLightsFrame::InitialiseControllersTab(bool rebuildPropGrid) {
             // Default style
             wxPG_DEFAULT_STYLE);
         Controllers_PropertyEditor->SetExtraStyle(wxWS_EX_PROCESS_IDLE | wxPG_EX_HELP_AS_TOOLTIPS);
+#endif
         FlexGridSizerSetupProperties->Add(Controllers_PropertyEditor, 1, wxALL | wxEXPAND, 5);
         Controllers_PropertyEditor->Connect(wxEVT_PG_CHANGED, (wxObjectEventFunction)&xLightsFrame::OnControllerPropertyGridChange, 0, this);
         Controllers_PropertyEditor->Connect(wxEVT_PG_ITEM_COLLAPSED, (wxObjectEventFunction)&xLightsFrame::OnControllerPropertyGridCollapsed, 0, this);
         Controllers_PropertyEditor->Connect(wxEVT_PG_ITEM_EXPANDED, (wxObjectEventFunction)&xLightsFrame::OnControllerPropertyGridExpanded, 0, this);
         Controllers_PropertyEditor->SetValidationFailureBehavior(wxPGVFBFlags::MarkCell | wxPGVFBFlags::Beep);
+#ifdef __WXOSX__
+        Controllers_PropertyEditor->Connect(wxEVT_KILL_FOCUS,(wxObjectEventFunction)&xlPropertyGrid::OnKillFocus, 0, grid);
+#endif
 
         Controllers_PropertyEditor->AddActionTrigger(wxPGKeyboardAction::NextProperty, WXK_RETURN);
         Controllers_PropertyEditor->DedicateKey(WXK_RETURN);

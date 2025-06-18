@@ -41,7 +41,7 @@
 					<Add directory="xLights" />
 					<Add directory="xLights/models" />
 					<Add directory="../dependencies/libxlsxwriter/include" />
-					<Add directory="../include/sol2-3.2.2" />
+					<Add directory="../include/sol2-3.5.0" />
 					<Add directory="../dependencies" />
 				</Compiler>
 				<Linker>
@@ -97,7 +97,7 @@
 					<Add directory="xLights" />
 					<Add directory="xLights/models" />
 					<Add directory="../dependencies/libxlsxwriter/include" />
-					<Add directory="../include/sol2-3.2.2" />
+					<Add directory="../include/sol2-3.5.0" />
 					<Add directory="../dependencies" />
 				</Compiler>
 				<Linker>
@@ -508,10 +508,15 @@
 		<Unit filename="cad/STLWriter.h" />
 		<Unit filename="cad/VRMLWriter.cpp" />
 		<Unit filename="cad/VRMLWriter.h" />
-		<Unit filename="ai/aiBase.h" />		
-		<Unit filename="ai/aiBase.cpp" />		
-		<Unit filename="ai/chatGPT.h" />		
-		<Unit filename="ai/chatGPT.cpp" />		
+		<Unit filename="ai/aiBase.h" />
+		<Unit filename="ai/aiBase.cpp" />
+		<Unit filename="ai/aiType.h" />
+		<Unit filename="ai/chatGPT.h" />
+		<Unit filename="ai/chatGPT.cpp" />
+		<Unit filename="ai/ollama.h" />	
+		<Unit filename="ai/ollama.cpp" />
+		<Unit filename="ai/ServiceManager.h" />
+		<Unit filename="ai/ServiceManager.cpp" />
 		<Unit filename="controllers/AlphaPix.cpp" />
 		<Unit filename="controllers/AlphaPix.h" />
 		<Unit filename="controllers/BaseController.cpp" />
@@ -1160,8 +1165,6 @@
 		<Unit filename="wxCheckedListCtrl.h" />
 		<Unit filename="wxModelGridCellRenderer.cpp" />
 		<Unit filename="wxModelGridCellRenderer.h" />
-		<Unit filename="wxWEBPHandler/imagwebp.cpp" />
-		<Unit filename="wxWEBPHandler/wx/imagwebp.h" />
 		<Unit filename="wx_pch.h" />
 		<Unit filename="wxsmith/AboutDialog.wxs" />
 		<Unit filename="wxsmith/AdjustPanel.wxs" />

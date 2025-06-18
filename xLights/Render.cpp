@@ -1290,6 +1290,9 @@ void xLightsFrame::UpdateRenderStatus() {
         }
 
         if (done) {
+            if (IsRenderBell() && !_renderMode && mRendering) {
+                wxBell();
+            }
             for (size_t row = 0; row < rpi->numRows; ++row) {
                 if (rpi->jobs[row]) {
                     delete rpi->jobs[row];
@@ -1309,9 +1312,6 @@ void xLightsFrame::UpdateRenderStatus() {
             delete rpi;
             rpi = nullptr;
             it = renderProgressInfo.erase(it);
-            if (!_renderMode) {
-                wxBell();
-            }
         } else {
             ++it;
         }
@@ -1523,7 +1523,7 @@ void xLightsFrame::Render(SequenceElements& seqElements,
                         job->SetModelBlending();
                     }
                     PixelBufferClass *buffer = job->getBuffer();
-                    if (buffer == nullptr) {
+                    if (buffer == nullptr || buffer->GetNodeCount() == 0) {
                         delete job;
                         continue;
                     }

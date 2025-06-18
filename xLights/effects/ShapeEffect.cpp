@@ -25,6 +25,7 @@
 #include "nanosvg/src/nanosvg.h"
 
 #include <regex>
+#include <log4cpp/Category.hh>
 
 #include "../../include/shape-16.xpm"
 #include "../../include/shape-24.xpm"
@@ -666,6 +667,11 @@ void ShapeEffect::Render(Effect *effect, const SettingsMap &SettingsMap, RenderB
     }
 
     if (Object_To_Draw == RENDER_SHAPE_EMOJI || Object_To_Draw == RENDER_SHAPE_SVG) {
+        if (buffer.BufferWi <= 0 || buffer.BufferHt <= 0 || buffer.BufferWi > 15000) {
+            static log4cpp::Category &logger_base = log4cpp::Category::getInstance(std::string("log_base"));
+            logger_base.error("Shape Effect (Emoji): Invalid buffer size: width=%d, height=%d", buffer.BufferWi, buffer.BufferHt);
+            return;
+        }
         auto context = buffer.GetTextDrawingContext();
         context->Clear();
     }
@@ -1286,11 +1292,6 @@ static inline uint8_t GetSVGBlue(uint32_t colour)
 static inline uint8_t GetSVGAlpha(uint32_t colour)
 {
     return (colour >> 24);
-}
-
-static inline uint32_t GetSVGExAlpha(uint32_t colour)
-{
-    return (colour & 0xFFFFFF);
 }
 
 void ShapeEffect::DrawSVG(ShapeRenderCache* cache, RenderBuffer& buffer, int xc, int yc, double radius, xlColor color, int thickness) const

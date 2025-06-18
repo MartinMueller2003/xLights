@@ -66,12 +66,12 @@
 #include "outputs/Output.h"
 #include "cad/ModelToCAD.h"
 #include "LORPreview.h"
-#include "ExternalHooks.h"
 #include "ModelFaceDialog.h"
 #include "ModelStateDialog.h"
 #include "CustomModelDialog.h"
 #include "SubModelsDialog.h"
 #include "xlColourData.h"
+#include "xlPropertyGrid.h"
 
 #include "LayoutUtils.h"
 
@@ -237,6 +237,7 @@ const long LayoutPanel::ID_ADD_DMX_FLOODLIGHT = wxNewId();
 const long LayoutPanel::ID_ADD_DMX_FLOODAREA = wxNewId();
 const long LayoutPanel::ID_PREVIEW_MODEL_CAD_EXPORT = wxNewId();
 const long LayoutPanel::ID_PREVIEW_LAYOUT_DXF_EXPORT = wxNewId();
+const long LayoutPanel::ID_PREVIEW_EXPORT_FACESSTATESSUBMODELS = wxNewId();
 const long LayoutPanel::ID_PREVIEW_FLIP_HORIZONTAL = wxNewId();
 const long LayoutPanel::ID_PREVIEW_FLIP_VERTICAL = wxNewId();
 const long LayoutPanel::ID_SET_CENTER_OFFSET = wxNewId();
@@ -444,7 +445,7 @@ LayoutPanel::LayoutPanel(wxWindow* parent, xLightsFrame *xl, wxPanel* sequencer)
     modelPreview->Connect(EVT_MOTION3D, (wxObjectEventFunction)&LayoutPanel::OnPreviewMotion3D, nullptr, this);
     modelPreview->Connect(EVT_MOTION3D_BUTTONCLICKED, (wxObjectEventFunction)&LayoutPanel::OnPreviewMotion3DButtonEvent, nullptr, this);
 
-    propertyEditor = new wxPropertyGrid(ModelSplitter,
+    propertyEditor = new xlPropertyGrid(ModelSplitter,
                                         wxID_ANY, // id
                                         wxDefaultPosition, // position
                                         wxDefaultSize, // size
@@ -453,7 +454,8 @@ LayoutPanel::LayoutPanel(wxWindow* parent, xLightsFrame *xl, wxPanel* sequencer)
                                         wxPG_SPLITTER_AUTO_CENTER | // Automatically center splitter until user manually adjusts it
                                         // Default style
                                         wxPG_DEFAULT_STYLE);
-    propertyEditor->SetExtraStyle(wxWS_EX_PROCESS_IDLE | wxPG_EX_HELP_AS_TOOLTIPS);
+    propertyEditor->SetExtraStyle(wxPG_EX_HELP_AS_TOOLTIPS);
+    propertyEditor->Connect(wxEVT_KILL_FOCUS,(wxObjectEventFunction)&xlPropertyGrid::OnKillFocus, 0, propertyEditor);
     LayoutUtils::CreateImageList(m_imageList);
 
     wxFlexGridSizer* FlexGridSizerModels = new wxFlexGridSizer(0, 1, 0, 0);
@@ -2901,10 +2903,8 @@ void LayoutPanel::OnButtonSavePreviewClick(wxCommandEvent& event)
     }
 
     SaveEffects();
-    if (xlights->IsControllersAndLayoutTabSaveLinked()) {
-        xlights->SaveNetworksFile();
-        xlights->UpdateLayoutSave(); // SaveEffects tried to do this, but if the saves are linked it is marked dirty til nets are saved.
-    }
+    xlights->SaveNetworksFile();
+    xlights->UpdateLayoutSave(); // SaveEffects tried to do this, but if the saves are linked it is marked dirty til nets are saved.
 }
 
 int LayoutPanel::ModelListComparator::SortElementsFunction(wxTreeListCtrl* treelist, wxTreeListItem item1, wxTreeListItem item2, unsigned sortColumn)
@@ -3669,6 +3669,8 @@ void LayoutPanel::FinalizeModel()
             float max_x = (float)(_newModel->GetBaseObjectScreenLocation().GetRight());
             float min_y = (float)(_newModel->GetBaseObjectScreenLocation().GetBottom());
             float max_y = (float)(_newModel->GetBaseObjectScreenLocation().GetTop());
+            float min_z = (float)(_newModel->GetBaseObjectScreenLocation().GetFront());
+            float max_z = (float)(_newModel->GetBaseObjectScreenLocation().GetBack());
             bool cancelled = false;
             auto pos = _newModel->GetBaseObjectScreenLocation().GetWorldPosition();
 
@@ -3683,7 +3685,11 @@ void LayoutPanel::FinalizeModel()
             auto oldam = modelPreview->GetAdditionalModel();
             modelPreview->SetAdditionalModel(nullptr); // just in case we delete the model
 
-            _newModel = Model::GetXlightsModel(_newModel, _lastXlightsModel, xlights, cancelled, b->GetModelType() == "Download", prog, 0, 99, modelPreview);
+            int widthmm = -1;
+            int heightmm = -1;
+            int depthmm = -1;
+
+            _newModel = Model::GetXlightsModel(_newModel, _lastXlightsModel, xlights, cancelled, b->GetModelType() == "Download", prog, 0, 99, modelPreview, widthmm, heightmm, depthmm);
 
             // These statements ensure the Additional model and _newModel pointers are all ok and any unnecessary models is cleaned up
             if (_newModel != oldNewModel) {
@@ -3745,7 +3751,27 @@ void LayoutPanel::FinalizeModel()
             if (!_newModel->SupportsVisitors() || !XmlSerializer::IsXmlSerializerFormat(_newModel->GetModelXml())) {
                 xlights->AddTraceMessage("LayoutPanel::FinalizeModel Do the import. " + _lastXlightsModel);
                 xlights->AddTraceMessage("LayoutPanel::FinalizeModel Model type " + _newModel->GetDisplayAs());
-                bool success = _newModel->ImportXlightsModel(_lastXlightsModel, xlights, min_x, max_x, min_y, max_y);
+
+                // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+                if (RulerObject::GetRuler() != nullptr && (widthmm != -1 || heightmm != -1 || depthmm != -1)) {
+                    if (widthmm != -1) {
+                        float measure = RulerObject::GetRuler()->UnMeasure(RulerObject::GetRuler()->ConvertDimension("mm", widthmm));
+                        max_x = measure / 2.0;
+                        min_x = -1 * max_x;
+                    }
+                    if (heightmm != -1) {
+                        float measure = RulerObject::GetRuler()->UnMeasure(RulerObject::GetRuler()->ConvertDimension("mm", heightmm));
+                        max_y = measure / 2.0;
+                        min_y = -1 * max_y;
+                    }
+                    if (depthmm != -1) {
+                        float measure = RulerObject::GetRuler()->UnMeasure(RulerObject::GetRuler()->ConvertDimension("mm", depthmm));
+						max_z = measure / 2.0;
+						min_z = -1 * max_z;
+					}
+                }
+
+                bool success = _newModel->ImportXlightsModel(_lastXlightsModel, xlights, min_x, max_x, min_y, max_y, min_z, max_z);
                 if (!success) {
                     _lastXlightsModel = "";
                     xlights->GetOutputModelManager()->ClearSelectedModel();
@@ -4632,6 +4658,7 @@ void LayoutPanel::AddSingleModelOptionsToBaseMenu(wxMenu &menu) {
 #ifdef _DEBUG
         menu.Append(ID_PREVIEW_MODEL_CAD_EXPORT, "Export As DXF/STL/VRML");
 #endif
+        menu.Append(ID_PREVIEW_EXPORT_FACESSTATESSUBMODELS, "Export Faces/States/SubModels");
         menu.AppendSeparator();
         for (const auto& it : xlights->AllModels) {
             if (it.second->GetDisplayAs() == "ModelGroup") {
@@ -5024,6 +5051,8 @@ void LayoutPanel::OnPreviewModelPopup(wxCommandEvent& event)
         ExportModelAsCAD();
     } else if (event.GetId() == ID_PREVIEW_LAYOUT_DXF_EXPORT) {
         ExportLayoutDXF();
+    } else if (event.GetId() == ID_PREVIEW_EXPORT_FACESSTATESSUBMODELS) {
+        ExportFacesStatesSubModels();
     } else if (event.GetId() == ID_PREVIEW_MODEL_ASPECTRATIO) {
         Model* md = dynamic_cast<Model*>(selectedBaseObject);
         if (md == nullptr)
@@ -5300,6 +5329,52 @@ void LayoutPanel::ExportLayoutDXF()
         } else {
             xlights->SetStatusText(wxString::Format("Export Failed '%s'", filename));
         }
+    }
+}
+
+void LayoutPanel::ExportFacesStatesSubModels() {
+    if (wxMessageBox("Are you sure you want to Export this model's Face/States/SubModels definitions to other models?\nThis will override all the other model's existing properties and there is no way to undo it.","Are you sure?", wxYES_NO | wxCENTER, this) == wxNO) {
+        return;
+    }
+
+    Model* selectedModel = dynamic_cast<Model*>(selectedBaseObject);
+    wxArrayString choices;
+    
+    for (const auto& model : modelPreview->GetModels()) {
+        if (model->Name() == selectedBaseObject->Name())
+            continue;
+        choices.Add(model->Name());
+    }
+
+    wxMultiChoiceDialog dlg(this, "Export Face/States/SubModels to Other Models", "Choose Model(s)", choices);
+    OptimiseDialogPosition(&dlg);
+
+    if (dlg.ShowModal() == wxID_OK) {
+        std::map<std::string, std::map<std::string, std::string>> sourceFaces = selectedModel->GetFaceInfo();
+        std::map<std::string, std::map<std::string, std::string>> sourceStates = selectedModel->GetStateInfo();
+
+        for (auto const& idx : dlg.GetSelections()) {
+            Model* targetModel = xlights->GetModel(choices.at(idx));
+            targetModel->SetFaceInfo(sourceFaces);
+            targetModel->SetStateInfo(sourceStates);
+            wxXmlNode* targetXml = targetModel->GetModelXml();
+            wxXmlNode* node = targetXml->GetChildren();
+            while (node != nullptr) {
+                wxXmlNode* next = node->GetNext();      // Store the next node before removal
+                if (node->GetName() == "subModel") {
+                    targetXml->RemoveChild(node);
+                    delete node;                        // Free the memory
+                }
+                node = next;                            // Move to the next node
+            }
+            for (wxXmlNode* node = selectedModel->GetModelXml()->GetChildren(); node != nullptr; node = node->GetNext()) {
+                if (node->GetName() == "subModel") {
+                    targetModel->AddSubmodel(node, true);
+                }
+            }
+            targetModel->IncrementChangeCount();
+        }
+        xlights->MarkEffectsFileDirty();
     }
 }
 
@@ -7561,6 +7636,8 @@ void LayoutPanel::OnModelsPopup(wxCommandEvent& event) {
         ShowWiring();
     } else if (event.GetId() == ID_PREVIEW_MODEL_CAD_EXPORT) {
         ExportModelAsCAD();
+    } else if (event.GetId() == ID_PREVIEW_EXPORT_FACESSTATESSUBMODELS) {
+        ExportFacesStatesSubModels();
     } else if (event.GetId() == ID_PREVIEW_MODEL_ASPECTRATIO) {
         Model* md = dynamic_cast<Model*>(selectedBaseObject);
         if (md == nullptr)
@@ -7929,9 +8006,6 @@ void LayoutPanel::OnModelsPopup(wxCommandEvent& event) {
 
             xlights->GetOutputModelManager()->AddASAPWork(OutputModelManager::WORK_RGBEFFECTS_CHANGE, "LayoutPanel::OnModelsPopup::ID_MNU_ADD_MODEL_GROUP");
             xlights->GetOutputModelManager()->AddASAPWork(OutputModelManager::WORK_RELOAD_ALLMODELS, "LayoutPanel::OnModelsPopup::ID_MNU_ADD_MODEL_GROUP", nullptr, nullptr, name.ToStdString());
-
-            //Model* model = xlights->GetModel(name.ToStdString());
-            //SelectModelInTree(model);
 
             xlights->GetOutputModelManager()->AddASAPWork(OutputModelManager::WORK_RELOAD_PROPERTYGRID, "LayoutPanel::OnModelsPopup::ID_MNU_ADD_MODEL_GROUP", nullptr, nullptr, name.ToStdString());
             xlights->GetOutputModelManager()->AddASAPWork(OutputModelManager::WORK_REDRAW_LAYOUTPREVIEW, "LayoutPanel::OnModelsPopup::ID_MNU_ADD_MODEL_GROUP", nullptr, nullptr, name.ToStdString());
@@ -9171,9 +9245,7 @@ bool LayoutPanel::HandleLayoutKeyBinding(wxKeyEvent& event) {
             EditModelData();
         } else if (type == "SAVE_LAYOUT") {
             SaveEffects();
-            if (xlights->IsControllersAndLayoutTabSaveLinked()) {
-                xlights->SaveNetworksFile();
-            }
+            xlights->SaveNetworksFile();
         } else if (type == "MODEL_ALIGN_TOP") {
             PreviewModelAlignTops();
         } else if (type == "MODEL_ALIGN_BOTTOM") {

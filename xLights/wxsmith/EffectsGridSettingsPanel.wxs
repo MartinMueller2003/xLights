@@ -202,8 +202,27 @@
 				<object class="wxCheckBox" name="ID_CHECKBOX8" variable="ShowAlternateTimingFormatCheckBox" member="yes">
 					<label>Show Alternate Timing Format</label>
 					<tooltip>Sequencer timing will be displayed in seconds and milliseconds</tooltip>
+					<handler function="OnShowAlternateTimingFormatCheckBoxClick" entry="EVT_CHECKBOX" />
 				</object>
 				<flag>wxALL|wxALIGN_LEFT|wxALIGN_CENTER_VERTICAL</flag>
+				<border>5</border>
+				<option>1</option>
+			</object>
+			<object class="spacer">
+				<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
+				<border>5</border>
+				<option>1</option>
+			</object>
+			<object class="spacer">
+				<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
+				<border>5</border>
+				<option>1</option>
+			</object>
+			<object class="sizeritem">
+				<object class="wxCheckBox" name="ID_CHECKBOX9" variable="BellOnRenderCompletion" member="yes">
+					<label>Bell on render completion</label>
+				</object>
+				<flag>wxALL|wxEXPAND</flag>
 				<border>5</border>
 				<option>1</option>
 			</object>
