@@ -488,6 +488,8 @@ const long xLightsImportChannelMapDialog::ID_MNU_SELECTNONE = wxNewId();
 const long xLightsImportChannelMapDialog::ID_MNU_COLLAPSEALL = wxNewId();
 const long xLightsImportChannelMapDialog::ID_MNU_EXPANDALL = wxNewId();
 const long xLightsImportChannelMapDialog::ID_MNU_SHOWALLMAPPED = wxNewId();
+const wxWindowID xLightsImportChannelMapDialog::ID_MNU_CLEARSELECTED = wxNewId();
+const wxWindowID xLightsImportChannelMapDialog::ID_MNU_CLEARALL = wxNewId();
 const long xLightsImportChannelMapDialog::ID_MNU_AUTOMAPSELECTED = wxNewId();
 const wxWindowID xLightsImportChannelMapDialog::ID_MNU_ADD_EMPTY_GROUP = wxNewId();
 
@@ -717,6 +719,9 @@ void xLightsImportChannelMapDialog::RightClickModels(wxDataViewEvent& event)
         mnuLayer.Append(ID_MNU_SHOWALLMAPPED, "Show All Mapped Models");
         mnuLayer.Append(ID_MNU_AUTOMAPSELECTED, "Auto Map Selected");
         mnuLayer.AppendSeparator();
+        mnuLayer.Append(ID_MNU_CLEARALL, "Clear All");
+        mnuLayer.Append(ID_MNU_CLEARSELECTED, "Clear Selected");
+        mnuLayer.AppendSeparator();
         mnuLayer.Append(ID_MNU_ADD_EMPTY_GROUP, "Add Empty Group");
         mnuLayer.Connect(wxEVT_COMMAND_MENU_SELECTED, (wxObjectEventFunction)&xLightsImportChannelMapDialog::OnPopupModels, nullptr, this);
         TreeListCtrl_Mapping->PopupMenu(&mnuLayer, event.GetPosition());
@@ -741,6 +746,10 @@ void xLightsImportChannelMapDialog::OnPopupModels(wxCommandEvent& event)
         ShowAllMapped();
     } else if (id == ID_MNU_AUTOMAPSELECTED) {
         OnButton_AutoMapSelClick(event);
+    } else if (id == ID_MNU_CLEARSELECTED) {
+        ClearSelected();
+    } else if (id == ID_MNU_CLEARALL) {
+        ClearAll();
     } else if (id == ID_MNU_ADD_EMPTY_GROUP) {
         AddEmptyGroup();
     }
@@ -818,8 +827,100 @@ void xLightsImportChannelMapDialog::ExpandAll()
     }
 }
 
+void xLightsImportChannelMapDialog::ClearAll() {
+    if (_dataModel == nullptr)
+        return;
+
+    _dirty = true;
+    TreeListCtrl_Mapping->Freeze();
+
+    for (unsigned int i = 0; i < _dataModel->GetChildCount(); ++i) {
+        xLightsImportModelNode* model = _dataModel->GetNthChild(i);
+        if (model != nullptr) {
+            model->ClearMapping();
+            for (unsigned int j = 0; j < model->GetChildCount(); ++j) {
+                xLightsImportModelNode* strand = model->GetNthChild(j);
+                if (strand != nullptr) {
+                    strand->ClearMapping();
+                    for (unsigned int k = 0; k < strand->GetChildCount(); ++k) {
+                        xLightsImportModelNode* node = strand->GetNthChild(k);
+                        if (node != nullptr) {
+                            node->ClearMapping();
+                        }
+                    }
+                }
+            }
+            wxDataViewItem item(model);
+            _dataModel->ValueChanged(item, 2);
+            _dataModel->SetMappingExists(item, true);
+        }
+    }
+
+    TreeListCtrl_Mapping->Thaw();
+    TreeListCtrl_Mapping->Refresh();
+    MarkUsed();
+}
+
+void xLightsImportChannelMapDialog::ClearSelected() {
+    if (_dataModel == nullptr)
+        return;
+
+    _dirty = true;
+    TreeListCtrl_Mapping->Freeze();
+
+    wxDataViewItemArray selectedItems;
+    TreeListCtrl_Mapping->GetSelections(selectedItems);
+
+    if (selectedItems.empty()) {
+        TreeListCtrl_Mapping->Thaw();
+        return;
+    }
+
+    for (const auto& item : selectedItems) {
+        xLightsImportModelNode* node = (xLightsImportModelNode*)item.GetID();
+        if (node != nullptr) {
+            if (node->GetParent() == nullptr && node->GetChildCount() > 0) {
+                if (!TreeListCtrl_Mapping->IsExpanded(item)) {
+                    node->ClearMapping();
+                    for (unsigned int j = 0; j < node->GetChildCount(); ++j) {
+                        xLightsImportModelNode* strand = node->GetNthChild(j);
+                        if (strand != nullptr) {
+                            strand->ClearMapping();
+                            for (unsigned int k = 0; k < strand->GetChildCount(); ++k) {
+                                xLightsImportModelNode* subNode = strand->GetNthChild(k);
+                                if (subNode != nullptr) {
+                                    subNode->ClearMapping();
+                                }
+                            }
+                            wxDataViewItem strandItem(strand);
+                            _dataModel->ValueChanged(strandItem, 2);
+                            _dataModel->SetMappingExists(strandItem, true);
+                        }
+                    }
+                    _dataModel->ValueChanged(item, 2);
+                    _dataModel->SetMappingExists(item, true);
+                } else {
+                    Unmap(item);
+                    _dataModel->ValueChanged(item, 2);
+                }
+            } else {
+                node->ClearMapping();
+                _dataModel->ValueChanged(item, 2);
+                _dataModel->SetMappingExists(item, true);
+            }
+        }
+    }
+
+    TreeListCtrl_Mapping->Thaw();
+    TreeListCtrl_Mapping->Refresh();
+    MarkUsed();
+}
+
 void xLightsImportChannelMapDialog::ShowAllMapped()
 {
+    if (_dataModel == nullptr) 
+        return;
+
     // expand all models that have strands that have a value
     wxDataViewItemArray models;
     _dataModel->GetChildren(wxDataViewItem(0), models);
@@ -2247,7 +2348,6 @@ void xLightsImportChannelMapDialog::OnDrop(wxCommandEvent& event)
     }
 
     TreeListCtrl_Mapping->Refresh();
-
     MarkUsed();
 }
 
@@ -2988,7 +3088,7 @@ void xLightsImportChannelMapDialog::DoAutoMap(
                 if (isTargetSelected) break;
             }
 
-            if ((selectMapTarget && isTargetSelected) || !selectMapTarget) {
+            if ((selectMapTarget && isTargetSelected) || !selectMapTarget) { // If LS has selection or no selections required
                 auto aliases = model->GetAliases();
                 if ((model->IsGroup() && (mg == "B" || mg == "G")) || (!model->IsGroup() && (mg == "B" || mg == "M"))) {
                     for (int j = 0; j < ListCtrl_Available->GetItemCount(); ++j) {
@@ -3062,9 +3162,58 @@ void xLightsImportChannelMapDialog::DoAutoMap(
                         }
                     }
                 }
-            } else {
-                static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
-                logger_base.warn("xLightsImportTreeModel::OnButton_AutoMapClick: Weird ... model %d was nullptr", i);
+            }
+        } else {
+            static log4cpp::Category& logger_base = log4cpp::Category::getInstance(std::string("log_base"));
+            logger_base.warn("xLightsImportTreeModel::OnButton_AutoMapClick: Weird ... model %d was nullptr", i);
+        }
+    }
+    // Process selected submodels independently
+    if (selectMapTarget) {
+        for (unsigned int i = 0; i < _dataModel->GetChildCount(); ++i) {
+            auto model = _dataModel->GetNthChild(i);
+            if (model != nullptr) {
+                for (unsigned int k = 0; k < model->GetChildCount(); ++k) {
+                    auto submodel = model->GetNthChild(k);
+                    if (submodel != nullptr) {
+                        bool isSubmodelSelected = false;
+                        auto index = (wxDataViewItem)submodel;
+                        for (const wxDataViewItem& selectedItem : targetSelectedItems) {
+                            isSubmodelSelected = (index.GetID() == selectedItem.GetID() ? true : false);
+                            if (isSubmodelSelected)
+                                break;
+                        }
+
+                        if ((selectMapTarget && isSubmodelSelected) || !selectMapTarget) {
+                            for (int j = 0; j < ListCtrl_Available->GetItemCount(); ++j) {
+                                bool isSourceSelected = ListCtrl_Available->GetItemState(j, wxLIST_STATE_SELECTED) == wxLIST_STATE_SELECTED;
+                                if ((selectMapAvail && isSourceSelected) || !selectMapAvail) {
+                                    std::string const availName = ListCtrl_Available->GetItemText(j).Trim(true).Trim(false).Lower().ToStdString();
+                                    auto m = xlights->GetModel(model->_model);
+                                    auto& mAliases = m->GetAliases();
+                                    if (m != nullptr) {
+                                        auto sm = m->GetSubModel(submodel->_strand);
+                                        if (sm != nullptr) {
+                                            auto& smAliases = sm->GetAliases();
+                                            if (submodel->_mapping.empty()) {
+                                                if (lambda_strand(submodel->GetModelName(), availName, extra1, extra2, smAliases)) {
+                                                    submodel->Map(ListCtrl_Available->GetItemText(j), "SubModel");
+                                                } else {
+                                                    for (const auto& modelAlias : mAliases) { // check for any aliases on model itself
+                                                        if (lambda_strand(modelAlias + "/" + submodel->_strand, availName, extra1, extra2, smAliases)) {
+                                                            submodel->Map(ListCtrl_Available->GetItemText(j), "SubModel");
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

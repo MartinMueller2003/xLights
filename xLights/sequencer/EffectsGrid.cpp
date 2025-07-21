@@ -97,6 +97,7 @@ const long EffectsGrid::ID_GRID_MNU_UNDO = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_REDO = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_PRESETS = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_BREAKDOWN_PHRASE = wxNewId();
+const long EffectsGrid::ID_GRID_MNU_BREAKDOWN_PHRASES = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_AUTOLABEL = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_HALVETIMINGS = wxNewId();
 const long EffectsGrid::ID_GRID_MNU_BREAKDOWN_WORD = wxNewId();
@@ -380,7 +381,7 @@ void EffectsGrid::rightClick(wxMouseEvent& event) {
 
         mRightClickStartTimeMS = mTimeline->GetRawTimeMSfromPosition(event.GetX());
         wxMenuItem* menu_split = mnuLayer.Append(ID_GRID_MNU_SPLIT_EFFECT, "Split");
-        if (mSelectedEffect == nullptr || MultipleEffectsSelected() || (mSelectedEffect->GetEndTimeMS() - mSelectedEffect->GetStartTimeMS() <= mSequenceElements->GetFrameMS())) {
+        if (mSelectedEffect == nullptr || (mSelectedEffect->GetEndTimeMS() - mSelectedEffect->GetStartTimeMS() <= mSequenceElements->GetFrameMS())) {
             menu_split->Enable(false);
         }
 
@@ -503,6 +504,9 @@ void EffectsGrid::rightClick(wxMouseEvent& event) {
         if (selectedEffect != nullptr && selectedEffect->GetParentEffectLayer()->GetParentElement()->GetType() == ElementType::ELEMENT_TYPE_TIMING) {
             if (ri->layerIndex == 0) {
                 mnuLayer.Append(ID_GRID_MNU_BREAKDOWN_PHRASE, "Breakdown Phrase");
+                if (selectedEffect->GetParentEffectLayer()->GetSelectedEffectCount() > 1) {
+                    mnuLayer.Append(ID_GRID_MNU_BREAKDOWN_PHRASES, "Breakdown Selected Phrases");
+                }
             } else if (ri->layerIndex == 1) {
                 mnuLayer.Append(ID_GRID_MNU_BREAKDOWN_WORD, "Breakdown Word");
                 if (selectedEffect->GetParentEffectLayer()->GetSelectedEffectCount() > 1) {
@@ -1004,38 +1008,49 @@ void EffectsGrid::OnGridPopup(wxCommandEvent& event) {
     } else if (id == ID_GRID_MNU_SPLIT_EFFECT) {
         logger_base.debug("OnGridPopup - SPLIT_EFFECT");
         if (mSelectedEffect != nullptr) {
-            long s = mSelectedEffect->GetStartTimeMS();
-            long e = mSelectedEffect->GetEndTimeMS();
-            mDropStartTimeMS = mRightClickStartTimeMS;
-            if (e - s > mSequenceElements->GetFrameMS()) {
-                auto el = mSelectedEffect->GetParentEffectLayer();
-                float splitf = mDropStartTimeMS; // (float)(e - s) / 2.0f;
-                if (mDropStartTimeMS <= s || mDropStartTimeMS >= e) {
-                    splitf = (float)(e - s) / 2.0f;
-                } else {
-                    splitf -= s;
+            for (const auto& layer : GetLayersWithSelectedEffects()) {
+                for (auto& eff : layer->GetAllEffects()) {
+                    if (eff->GetSelected() == EFFECT_SELECTED && !eff->IsLocked()) {
+                        long s = eff->GetStartTimeMS();
+                        long e = eff->GetEndTimeMS();
+                        if (MultipleEffectsSelected()) {
+                            mDropStartTimeMS = (float)(e - s) / 2.0f;
+                        } else {
+                            mDropStartTimeMS = mRightClickStartTimeMS;
+                        }
+                        if (e - s > mSequenceElements->GetFrameMS()) {
+                            auto el = eff->GetParentEffectLayer();
+                            float splitf = mDropStartTimeMS;
+                            if (mDropStartTimeMS <= s || mDropStartTimeMS >= e) {
+                                splitf = (float)(e - s) / 2.0f;
+                            } else {
+                                splitf -= s;
+                            }
+                            mSequenceElements->get_undo_mgr().CreateUndoStep();
+                            mSequenceElements->get_undo_mgr().CaptureModifiedEffect(el->GetParentElement()->GetModelName(), el->GetIndex(), eff->GetID(), eff->GetSettingsAsString(), eff->GetPaletteAsString());
+                            mSequenceElements->get_undo_mgr().CaptureEffectToBeMoved(el->GetParentElement()->GetModelName(), el->GetIndex(), eff->GetID(), eff->GetStartTimeMS(), eff->GetEndTimeMS());
+                            long newend = TimeLine::RoundToMultipleOfPeriod((float)s + splitf, mSequenceElements->GetFrameMS());
+                            eff->SetEndTimeMS(newend);
+
+                            long newstart = newend;
+                            newend = e;
+
+                            Effect* newef = el->AddEffect(0, xlights->GetEffectManager().GetEffectName(eff->GetEffectIndex()), eff->GetSettingsAsString(), eff->GetPaletteAsString(), newstart, newend, EFFECT_SELECTED, false);
+
+                            xlights->GetEffectManager().GetEffect(newef->GetEffectIndex())->AdjustSettingsAfterSplit(eff, newef);
+
+                            mSequenceElements->get_undo_mgr().CaptureAddedEffect(el->GetParentElement()->GetName(), el->GetIndex(), newef->GetID());
+                            mSequenceElements->get_undo_mgr().CreateUndoStep();
+                            mSequenceElements->get_undo_mgr().CaptureModifiedEffect(el->GetParentElement()->GetModelName(), el->GetIndex(), eff);
+
+
+                        }
+                    }
                 }
-                mSequenceElements->get_undo_mgr().CreateUndoStep();
-                mSequenceElements->get_undo_mgr().CaptureModifiedEffect(el->GetParentElement()->GetModelName(), el->GetIndex(), mSelectedEffect->GetID(), mSelectedEffect->GetSettingsAsString(), mSelectedEffect->GetPaletteAsString());
-                mSequenceElements->get_undo_mgr().CaptureEffectToBeMoved(el->GetParentElement()->GetModelName(), el->GetIndex(), mSelectedEffect->GetID(), mSelectedEffect->GetStartTimeMS(), mSelectedEffect->GetEndTimeMS());
-                long newend = TimeLine::RoundToMultipleOfPeriod((float)s + splitf, mSequenceElements->GetFrameMS());
-                mSelectedEffect->SetEndTimeMS(newend);
-
-                long newstart = newend;
-                newend = e;
-
-                Effect* newef = el->AddEffect(0, xlights->GetEffectManager().GetEffectName(mSelectedEffect->GetEffectIndex()), mSelectedEffect->GetSettingsAsString(), mSelectedEffect->GetPaletteAsString(), newstart, newend, EFFECT_SELECTED, false);
-
-                xlights->GetEffectManager().GetEffect(newef->GetEffectIndex())->AdjustSettingsAfterSplit(mSelectedEffect, newef);
-
-                mSequenceElements->get_undo_mgr().CaptureAddedEffect(el->GetParentElement()->GetName(), el->GetIndex(), newef->GetID());
-                mSequenceElements->get_undo_mgr().CreateUndoStep();
-                mSequenceElements->get_undo_mgr().CaptureModifiedEffect(el->GetParentElement()->GetModelName(), el->GetIndex(), mSelectedEffect);
-
-                mSelectedEffect->SetSelected(EFFECT_SELECTED);
-
-                sendRenderDirtyEvent();
             }
+            mSelectedEffect->SetSelected(EFFECT_SELECTED);
+
+            sendRenderDirtyEvent();
         }
     } else if (id == ID_GRID_MNU_DUPLICATE_EFFECT) {
         logger_base.debug("OnGridPopup - DUPLICATE_EFFECT");
@@ -1106,6 +1121,54 @@ void EffectsGrid::OnGridPopup(wxCommandEvent& event) {
             word_layer->SelectEffectsInTimeRange(phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS());
             word_layer->DeleteSelectedEffects(mSequenceElements->get_undo_mgr());
             mSequenceElements->BreakdownPhrase(word_layer, phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS(), phrase_effect->GetEffectName(), mSequenceElements->get_undo_mgr());
+            element->SetCollapsed(false);
+            wxCommandEvent eventRowHeaderChanged(EVT_ROW_HEADINGS_CHANGED);
+            wxPostEvent(mParent, eventRowHeaderChanged);
+        }
+    } else if (id == ID_GRID_MNU_BREAKDOWN_PHRASES) {
+        logger_base.debug("OnGridPopup - ID_GRID_MNU_BREAKDOWN_PHRASES");
+        Effect* phrase_effect = mSelectedEffect;
+        EffectLayer* word_layer;
+        TimingElement* element = dynamic_cast<TimingElement*>(phrase_effect->GetParentEffectLayer()->GetParentElement());
+        bool found_locked = false;
+        element->SetFixedTiming(0);
+        if (element->GetEffectLayerCount() == 1) {
+            word_layer = element->AddEffectLayer();
+        } else {
+            word_layer = element->GetEffectLayer(1);
+        }
+
+        mSequenceElements->get_undo_mgr().CreateUndoStep();
+        word_layer->UnSelectAllEffects();
+        word_layer->SelectEffectsInTimeRange(phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS());
+        EffectLayer* layer = phrase_effect->GetParentEffectLayer();
+        for (int x = 0; x < layer->GetEffectCount(); x++) {
+            phrase_effect = layer->GetEffect(x);
+            if (phrase_effect->GetSelected() != EFFECT_NOT_SELECTED) {
+                for (auto&& e : word_layer->GetAllEffectsByTime(phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS())) {
+                    if (e->IsLocked()) {
+                        found_locked = true;
+                        break;
+                    }
+                }
+                word_layer->SelectEffectsInTimeRange(phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS());
+            }
+            if (found_locked) {
+                break;
+            }
+        }
+
+        if (found_locked) {
+            wxMessageBox("Locked words in the way - Can not break down phrase", "Error", wxOK);
+            word_layer->UnSelectAllEffects();
+        } else {
+            word_layer->DeleteSelectedEffects(mSequenceElements->get_undo_mgr());
+            for (int x = 0; x < layer->GetEffectCount(); x++) {
+                phrase_effect = layer->GetEffect(x);
+                if (phrase_effect->GetSelected() != EFFECT_NOT_SELECTED) {
+                    mSequenceElements->BreakdownPhrase(word_layer, phrase_effect->GetStartTimeMS(), phrase_effect->GetEndTimeMS(), phrase_effect->GetEffectName(), mSequenceElements->get_undo_mgr());
+                }
+            }
             element->SetCollapsed(false);
             wxCommandEvent eventRowHeaderChanged(EVT_ROW_HEADINGS_CHANGED);
             wxPostEvent(mParent, eventRowHeaderChanged);
@@ -1787,6 +1850,7 @@ void EffectsGrid::mouseDown(wxMouseEvent& event) {
     int selectedTimeMS = mTimeline->GetAbsoluteTimeMSfromPosition(event.GetX());
     mStartResizeTimeMS = selectedTimeMS;
     int row = GetRow(event.GetY());
+    mSelectedRow = GetRow(event.GetY()) + mSequenceElements->GetFirstVisibleModelRow();
     if (row >= mSequenceElements->GetVisibleRowInformationSize() || row < 0)
         return;
     mSequenceElements->get_undo_mgr().CreateUndoStep();
@@ -3755,7 +3819,6 @@ void EffectsGrid::Resize(int position, bool offset, bool control) {
 }
 
 void EffectsGrid::ScrollBy(int by) {
-    mSelectedRow -= by;
 }
 
 void EffectsGrid::MoveSelectedEffectUp(bool shift) {
@@ -3780,44 +3843,9 @@ void EffectsGrid::MoveSelectedEffectUp(bool shift) {
         }
         SetRCToolTip();
         UpdateSelectedEffects();
-        MakeRowVisible(mRangeEndRow - mSequenceElements->GetNumberOfTimingRows());
+        MakeRowVisible(mRangeEndRow - mSequenceElements->GetNumberOfTimingRows() - 1);
         Draw();
-    } else if (!MultipleEffectsSelected() && mSelectedEffect != nullptr && !mSelectedEffect->IsLocked() && mSelectedRow > 0) {
-        logger_base.debug("EffectsGrid::MoveSelectedEffectUp moving single effect.");
-        int row = mSelectedRow - 1;
-        xlights->AbortRender();
-        EffectLayer* el = mSelectedEffect->GetParentEffectLayer();
-        while (row + mSequenceElements->GetFirstVisibleModelRow() >= mSequenceElements->GetNumberOfTimingRows()) {
-            EffectLayer* new_el = mSequenceElements->GetEffectLayer(mSequenceElements->GetFirstVisibleModelRow() + row);
-            if (new_el != nullptr) {
-                if (new_el->GetRangeIsClearMS(mSelectedEffect->GetStartTimeMS(), mSelectedEffect->GetEndTimeMS())) {
-                    mSequenceElements->get_undo_mgr().CreateUndoStep();
-                    Effect* ef = new_el->AddEffect(0,
-                                                   mSelectedEffect->GetEffectName(),
-                                                   mSelectedEffect->GetSettingsAsString(),
-                                                   mSelectedEffect->GetPaletteAsString(),
-                                                   mSelectedEffect->GetStartTimeMS(),
-                                                   mSelectedEffect->GetEndTimeMS(),
-                                                   EFFECT_SELECTED,
-                                                   false);
-                    if (ef != nullptr) {
-                        mSelectedRow = row;
-                        mSelectedEffect = ef;
-                        el->DeleteSelectedEffects(mSequenceElements->get_undo_mgr());
-                        mSequenceElements->get_undo_mgr().CaptureAddedEffect(new_el->GetParentElement()->GetModelName(), new_el->GetIndex(), ef->GetID());
-                        RaiseSelectedEffectChanged(ef, false, true);
-                        sendRenderDirtyEvent();
-                        MakeRowVisible(mSelectedRow + mSequenceElements->GetFirstVisibleModelRow() - mSequenceElements->GetNumberOfTimingRows());
-                    } else {
-                        logger_base.warn("Problem adding effect when moving effect up %s", (const char*)mSelectedEffect->GetEffectName().c_str());
-                    }
-                    Draw();
-                    return;
-                }
-            }
-            row--;
-        }
-    } else if (MultipleEffectsSelected()) {
+    } else {
         logger_base.debug("EffectsGrid::MoveSelectedEffectUp moving multiple effects.");
 
         // check if its clear for all effects
@@ -3912,42 +3940,7 @@ void EffectsGrid::MoveSelectedEffectDown(bool shift) {
         UpdateSelectedEffects();
         MakeRowVisible(mRangeEndRow - mSequenceElements->GetNumberOfTimingRows() + 1);
         Draw();
-    } else if (!MultipleEffectsSelected() && mSelectedEffect != nullptr && !mSelectedEffect->IsLocked() && mSelectedRow >= 0) {
-        logger_base.debug("EffectsGrid::MoveSelectedEffectDown moving single effect.");
-        int row = mSelectedRow + 1;
-        xlights->AbortRender();
-        EffectLayer* el = mSelectedEffect->GetParentEffectLayer();
-        while (row < mSequenceElements->GetRowInformationSize()) {
-            EffectLayer* new_el = mSequenceElements->GetEffectLayer(mSequenceElements->GetFirstVisibleModelRow() + row);
-            if (new_el != nullptr) {
-                if (new_el->GetRangeIsClearMS(mSelectedEffect->GetStartTimeMS(), mSelectedEffect->GetEndTimeMS())) {
-                    mSequenceElements->get_undo_mgr().CreateUndoStep();
-                    Effect* ef = new_el->AddEffect(0,
-                                                   mSelectedEffect->GetEffectName(),
-                                                   mSelectedEffect->GetSettingsAsString(),
-                                                   mSelectedEffect->GetPaletteAsString(),
-                                                   mSelectedEffect->GetStartTimeMS(),
-                                                   mSelectedEffect->GetEndTimeMS(),
-                                                   EFFECT_SELECTED,
-                                                   false);
-                    if (ef != nullptr) {
-                        mSelectedRow = row;
-                        mSelectedEffect = ef;
-                        el->DeleteSelectedEffects(mSequenceElements->get_undo_mgr());
-                        mSequenceElements->get_undo_mgr().CaptureAddedEffect(new_el->GetParentElement()->GetModelName(), new_el->GetIndex(), ef->GetID());
-                        RaiseSelectedEffectChanged(ef, false, true);
-                        sendRenderDirtyEvent();
-                        MakeRowVisible(mSelectedRow + mSequenceElements->GetFirstVisibleModelRow() - mSequenceElements->GetNumberOfTimingRows() + 1);
-                    } else {
-                        logger_base.warn("Error adding effect when moving effects down %s", (const char*)mSelectedEffect->GetEffectName().c_str());
-                    }
-                    Draw();
-                    return;
-                }
-            }
-            ++row;
-        }
-    } else if (MultipleEffectsSelected()) {
+    } else {
         logger_base.debug("EffectsGrid::MoveSelectedEffectDown moving multiple effects.");
 
         // check if its clear for all effects
@@ -6233,7 +6226,7 @@ void EffectsGrid::SetFirstEffectSelected() {
             for (int i = 0; i < num_effects && !found; ++i) {
                 Effect* eff = el->GetEffect(i);
                 if (eff->GetSelected()) {
-                    mSelectedRow = row- mSequenceElements->GetFirstVisibleModelRow();
+                    mSelectedRow = row - mSequenceElements->GetFirstVisibleModelRow();
                     mSelectedEffect = eff;
                     RaiseSelectedEffectChanged(eff, false);
                     RaisePlayModelEffect(element, eff, false);
